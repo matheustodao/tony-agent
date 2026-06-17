@@ -3,9 +3,11 @@ import dataclasses
 from kokoro import KPipeline
 import sounddevice as sd
 import regex as re
+from numpy import ndarray
 # import torch
 from strands import tool
-import codecs
+import queue
+import threading
 
 pipeline = KPipeline(
     lang_code='p',
@@ -39,26 +41,49 @@ _warmup_speech()
 class StreamingVoice:
     speech_buffer: str = ''
     word_counter: int = 0
-    _MAX_WORD_COUNTER = 75
-    _REGEX_PONTING = r"[,.!?:]"
-    _SAMPLE_RATE = 24_000
+
+    # Threads
+    _speech_queue: queue.Queue[str] = queue.Queue()
+    _speaking_thread: None | threading.Thread = None
+
+    _audio_queue: queue.Queue[ndarray] = queue.Queue()
+    _audio_thread: None | threading.Thread = None
+
+    _MAX_WORD_COUNTER: int = 75
+    _SAMPLE_RATE: int = 24_000
+    _REGEX_STRONG: str = r"([.!?\n])"  # pausa forte  → fala imediato
+    _REGEX_WEAK: str = r"[,;:]"  # pausa fraca  → acumula até MAX
+
+    def __post_init__(self):
+        if self._speech_queue is None:
+            self._speech_queue = queue.Queue()
+
+        if self._speaking_thread is None:
+            self._speaking_thread = threading.Thread(
+                target=self.speaking_worker,
+                daemon=True
+            )
+            self._speaking_thread.start()
+
+        if self._audio_thread is None:
+            self._audio_thread = threading.Thread(
+                target=self.audio_worker,
+                daemon=True
+            )
+            self._audio_thread.start()
 
     def stream_voice(self, **kwargs):
         print('LIFECYCLE', kwargs)
-        # if 'message' in kwargs:
-        #     message = kwargs.get('message')
-        #     content = message.get('content')
-        #     feedback = content[0].get('toolUse')
-        #     if feedback:
-        #         input = feedback.get('input')
-        #         inputMessage = input.get('message')
-        #         self.speech_buffer += codecs.decode(inputMessage)
-        #         self.speak()
-        #         return
-        #     return
+        if 'start_event_loop' in kwargs and kwargs['start_event_loop'] is True:
+            with self._speech_queue.mutex:
+                self._speech_queue.queue.clear()
+                self._speech_queue.unfinished_tasks = 0
+                self._speech_queue.all_tasks_done.notify_all()
 
         if 'event' in kwargs and 'messageStop' in kwargs['event']:
-            self.speak()
+            if self.speech_buffer.strip():
+                self._speech_queue.put(self.speech_buffer.strip())
+            self._clear_buffer(_force=True)
 
         if not 'data' in kwargs:
             return
@@ -68,19 +93,34 @@ class StreamingVoice:
         self._manipulate_buffer(chunk)
 
         if self._can_talk():
-            self.speak()
+            self._speech_queue.put(self.speech_buffer)
+            self._clear_buffer(_force=True)
 
     def _manipulate_buffer(self, chunk: str | None):
         if chunk is None:
             return
 
         self.speech_buffer += chunk
+
+        parts = re.split(self._REGEX_STRONG, self.speech_buffer, maxsplit=1)
+
+        if len(parts) > 1:
+            phrase: str = (parts[0] + parts[1]).strip()
+
+            if phrase:
+                self._speech_queue.put(phrase)
+
+            self.speech_buffer = parts[2].lstrip()
+
         self.word_counter = len([word.strip() for word in self.speech_buffer.split(' ')])
 
     def _can_talk(self) -> bool:
+        if re.search(self._REGEX_WEAK, self.speech_buffer):
+            return True
+
         return (
             self.word_counter >= self._MAX_WORD_COUNTER or
-            self._has_pointing(self.speech_buffer)
+            re.search(self._REGEX_WEAK, self.speech_buffer)
         )
 
     def _clear_buffer(self, _force: bool = False):
@@ -89,14 +129,28 @@ class StreamingVoice:
             self.word_counter = 0
             return
 
-    def _has_pointing(self, text: str):
-        return bool(re.search(self._REGEX_PONTING, text))
+    def speak(self, text: str) -> None:
+        if not text.strip():
+            return
 
-    @tool
-    def speak(self):
-        if self.speech_buffer.strip():
-            for chunk in _generate_speech(self.speech_buffer.strip()):
-                sd.play(data=chunk.output.audio.numpy(), samplerate=self._SAMPLE_RATE)
-                sd.wait(ignore_errors=True)
+        for chunk in _generate_speech(text.strip()):
+            self._audio_queue.put(chunk.output.audio.numpy())
 
-        self._clear_buffer(_force=True)
+    def speaking_worker(self):
+        while True:
+            speech = self._speech_queue.get()
+
+            if not speech or speech is None:
+                continue
+
+            self.speak(text=speech)
+
+    def audio_worker(self):
+        while True:
+            audio = self._audio_queue.get()
+
+            if audio is None:
+                continue
+
+            sd.play(data=audio, samplerate=self._SAMPLE_RATE)
+            sd.wait(ignore_errors=True)
