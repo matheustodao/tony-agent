@@ -6,6 +6,8 @@ from assistant_config import assistant
 brain = OllamaModel(
     host='http://127.0.0.1:11434',
     model_id='qwen2.5:7b',
+    temperature=0.8,
+    keep_alive=-1
 )
 
 voice_streaming = speak.StreamingVoice()
@@ -14,5 +16,11 @@ agent = Agent(
     model=brain,
     # tools=[voice_streaming.speak],
     system_prompt="/no_think\n\n" + assistant.short_prompt,
-    callback_handler=voice_streaming.stream_voice
+    callback_handler=voice_streaming.stream_voice,
 )
+
+
+def _warmup_agent():
+    agent('wakeup')
+
+_warmup_agent()
