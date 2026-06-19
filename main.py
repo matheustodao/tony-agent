@@ -1,14 +1,12 @@
 from agent import agent
 from assistant_config import assistant
+from decorators.profiling import profiling
 
-print(f"{assistant.name} está pronto! (ctrl+c para sair)\n")
+print(f"\n\n{assistant.name} está pronto! (ctrl+c para sair)\n")
 
-
-def ask(user_input: str):
-    response = agent(user_input)
-    print(response)
-
-
+@profiling
+def ask(text: str):
+    agent(text)
 
 while True:
     user_input = input("\nVocê: ")
