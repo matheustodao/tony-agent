@@ -4,7 +4,9 @@ import sounddevice as sd
 import regex as re
 from numpy import ndarray
 import threading
-from tools.process_tts import _process_text_to_audio_samples
+
+from decorators.profiling import profiling
+from tools.tts.process_tts import process_text_to_audio_samples
 from multiprocessing.queues import Queue as MQueue
 from multiprocessing import Process, Queue
 
@@ -20,9 +22,10 @@ class StreamingVoice:
     _audio_queue: MQueue[ndarray] = Queue()
     _audio_thread: None | threading.Thread = None
 
-    _MAX_WORD_COUNTER: int = 10
+    _MAX_WORD_COUNTER: int = 30
+    _MIN_WORD_TO_SPEAK: int = 5
     _SAMPLE_RATE: int = 24_000
-    _REGEX_STRONG: str = r"([.!?\n])"  # pausa forte  → fala imediato
+    _REGEX_STRONG: str = r"([.!?])"  # pausa forte  → fala imediato
     _REGEX_WEAK: str = r"[,;:]"  # pausa fraca  → acumula até MAX
 
     def __post_init__(self):
@@ -31,7 +34,7 @@ class StreamingVoice:
 
         if self._speaking_thread is None:
             self._speaking_thread = Process(
-                target=_process_text_to_audio_samples,
+                target=process_text_to_audio_samples,
                 args=(self._speech_queue, self._audio_queue),
                 #kwargs={ 'speech_queue': self._speech_queue, 'audio_queue': self._audio_queue },
                 daemon=True
@@ -46,7 +49,6 @@ class StreamingVoice:
             self._audio_thread.start()
 
     def stream_voice(self, **kwargs):
-        print('LIFECYCLE', kwargs)
         if 'start_event_loop' in kwargs and kwargs['start_event_loop'] is True:
             self._clear_queue_speech()
 
@@ -60,6 +62,8 @@ class StreamingVoice:
 
         chunk = kwargs.get('data')
 
+        print(chunk, end='', flush=True)
+
         self._manipulate_buffer(chunk)
 
         if self._can_talk():
@@ -70,26 +74,29 @@ class StreamingVoice:
         if chunk is None:
             return
 
+        chunk = chunk.replace('\n', '')
         self.speech_buffer += chunk
 
         parts = re.split(self._REGEX_STRONG, self.speech_buffer, maxsplit=1)
 
-        if len(parts) > 1:
+        if len(parts) == 3:
             phrase: str = (parts[0] + parts[1]).strip()
 
-            if phrase:
-                self._speech_queue.put(phrase)
+            can_speak_current_phrase = phrase and len(phrase.split(' ')) >= self._MIN_WORD_TO_SPEAK
 
-            self.speech_buffer = parts[2].lstrip()
+            if can_speak_current_phrase:
+                self._speech_queue.put(phrase)
+                self.speech_buffer = parts[2].lstrip()
+
+            if not can_speak_current_phrase:
+                self.speech_buffer = phrase + ' ' + parts[2].lstrip()
+
 
         self.word_counter = len([word.strip() for word in self.speech_buffer.split(' ')])
 
     def _can_talk(self) -> bool:
-        if re.search(self._REGEX_WEAK, self.speech_buffer):
-            return True
-
         return (
-            self.word_counter >= self._MAX_WORD_COUNTER or
+            self.word_counter >= self._MAX_WORD_COUNTER and
             re.search(self._REGEX_WEAK, self.speech_buffer)
         )
 
@@ -106,8 +113,13 @@ class StreamingVoice:
             if audio is None:
                 continue
 
-            sd.play(data=audio, samplerate=self._SAMPLE_RATE)
-            sd.wait(ignore_errors=True)
+            self.play(samples=audio)
+
+    @profiling
+    def play(self, samples):
+        sd.play(data=samples, samplerate=self._SAMPLE_RATE)
+        sd.wait(ignore_errors=True)
+
 
     def _clear_queue_speech(self):
         while not self._speech_queue.empty():
