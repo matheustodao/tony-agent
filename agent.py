@@ -6,7 +6,7 @@ from assistant_config import assistant
 brain = OllamaModel(
     host='http://127.0.0.1:11434',
     model_id='qwen2.5:7b',
-    temperature=0.8,
+    temperature=0.3,
     keep_alive=-1
 )
 
@@ -15,7 +15,7 @@ voice_streaming = speak.StreamingVoice()
 agent = Agent(
     model=brain,
     # tools=[voice_streaming.speak],
-    system_prompt="/no_think\n\n" + assistant.short_prompt,
+    system_prompt="/no_think\n\nResponda SEMPRE em português brasileiro. Nunca use outro idioma.\n\n" + assistant.short_prompt,
     callback_handler=voice_streaming.stream_voice,
 )
 
