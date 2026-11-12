@@ -5,7 +5,6 @@ import regex as re
 from numpy import ndarray
 import threading
 
-from decorators.profiling import profiling
 from tools.tts.process_tts import process_text_to_audio_samples
 from multiprocessing.queues import Queue as MQueue
 from multiprocessing import Process, Queue
@@ -95,7 +94,7 @@ class StreamingVoice:
         self.word_counter = len([word.strip() for word in self.speech_buffer.split(' ')])
 
     def _can_talk(self) -> bool:
-        return (
+        return bool(
             self.word_counter >= self._MAX_WORD_COUNTER and
             re.search(self._REGEX_WEAK, self.speech_buffer)
         )
@@ -115,7 +114,6 @@ class StreamingVoice:
 
             self.play(samples=audio)
 
-    @profiling
     def play(self, samples):
         sd.play(data=samples, samplerate=self._SAMPLE_RATE)
         sd.wait(ignore_errors=True)
@@ -125,5 +123,5 @@ class StreamingVoice:
         while not self._speech_queue.empty():
             try:
                 self._speech_queue.get_nowait()
-            except None:
+            except:
                 break
