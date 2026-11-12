@@ -18,7 +18,7 @@ def get_hardware_information():
   ram = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
 
   return {
-    "system_name": f"${platform.freedesktop_os_release()["PRETTY_NAME"]} - ${platform.system()}",
+    "system_name": f"{platform.freedesktop_os_release()["PRETTY_NAME"]} - {platform.system()}",
     "ram_total_gb": _gb(ram),
     "disco_total_gb": _gb(total),
     "disco_em_uso_gb": _gb(used),
