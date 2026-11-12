@@ -6,7 +6,6 @@ import torch
 from multiprocessing.queues import Queue as MQueue
 from kokoro_onnx import Kokoro
 from numpy import ndarray
-from decorators.profiling import profiling
 import unicodedata
 import re
 
