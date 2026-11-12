@@ -69,20 +69,25 @@ tony-agent/
 │   ├── speak.py         # StreamingVoice: stream → frases → áudio
 │   └── tts/
 │       ├── process_tts.py   # Worker Kokoro ONNX + limpeza de texto
-│       └── kokoro/onnx/     # Modelo e vozes (Git LFS)
+│       └── kokoro/onnx/     # Modelo e vozes (baixados, fora do git)
 └── voices/               # Vozes customizadas
 ```
 
 ## 🚀 Como rodar
 
-**Pré-requisitos:** Python 3.12+, [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com), [Git LFS](https://git-lfs.com) e `portaudio` (para `sounddevice`/`pyaudio`).
+**Pré-requisitos:** Python 3.12+, [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com), e `portaudio` (para `sounddevice`/`pyaudio`).
 
 ```bash
-git lfs install
 git clone <url-do-repositorio> && cd tony-agent
 
 # modelo de linguagem
 ollama pull qwen2.5:7b
+
+# modelo de voz (Kokoro ONNX, ~350 MB, não versionado)
+mkdir -p tools/tts/kokoro/onnx && cd tools/tts/kokoro/onnx
+curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+cd -
 
 # dependências
 uv sync
